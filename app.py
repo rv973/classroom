@@ -1,53 +1,77 @@
+# prompt: give an app.py file with all features which i can deploy to the streamlit cloud
+
 import streamlit as st
 import pandas as pd
-import pickle
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import VotingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.metrics import accuracy_score
 
-# Load the trained model
-filename = r'knn_model.sav'
-loaded_model = pickle.load(open(filename, 'rb'))
 
-# Define the correct column names
-columns = ['Delivery_Distance', 'Traffic_Congestion', 'Weather_Condition',
-           'Delivery_Slot', 'Driver_Experience', 'Num_Stops', 'Vehicle_Age',
-           'Road_Condition_Score', 'Package_Weight', 'Fuel_Efficiency',
-           'Warehouse_Processing_Time']
+# Load your dataset
+df = pd.read_csv('/content/fraud_oracle - fraud_oracle.csv')
 
-# Define the prediction function
-def predict_delivery_delay(features):
-    """
-    Predicts the delivery delay based on input features.
-    """
-    prediction = loaded_model.predict(features)
-    return prediction
 
-# Create the Streamlit app
-st.title("Delivery Delay Prediction")
+# Create a LabelEncoder object
+le = LabelEncoder()
 
-# Get user input
-st.write("Please provide the following information:")
-Delivery_Distance = st.number_input("Delivery Distance (in km)", min_value=0.0)
-Traffic_Congestion = st.number_input("Traffic Congestion Level (1-5)", min_value=1, max_value=5)
-Weather_Condition = st.number_input("Weather Condition (1-5)", min_value=1, max_value=5)
-Delivery_Slot = st.number_input("Delivery Slot (1-based index)", min_value=1)
-Driver_Experience = st.number_input("Driver Experience (in years)", min_value=0.0)
-Num_Stops = st.number_input("Number of Stops", min_value=0)
-Vehicle_Age = st.number_input("Vehicle Age (in years)", min_value=0.0)
-Road_Condition_Score = st.number_input("Road Condition Score (1-5)", min_value=1, max_value=5)
-Package_Weight = st.number_input("Package Weight (in kg)", min_value=0.0)
-Fuel_Efficiency = st.number_input("Fuel Efficiency (in km/liter)", min_value=0.0)
-Warehouse_Processing_Time = st.number_input("Warehouse Processing Time (in minutes)", min_value=0.0)
+# Iterate through the columns of the DataFrame
+for column in df.columns:
+  # Check if the column is of object type and has a limited number of unique values
+  if df[column].dtype == 'object' and len(df[column].unique()) < 50:  # Adjust the threshold as needed
+    try:
+      # Fit and transform the column using LabelEncoder
+      df[column] = le.fit_transform(df[column])
+    except:
+      print(f"Error encoding column: {column}")
+      pass  # Handle the error as needed
 
-# Create a dataframe with the user input
-input_data = pd.DataFrame([[Delivery_Distance, Traffic_Congestion, Weather_Condition,
-                            Delivery_Slot, Driver_Experience, Num_Stops, Vehicle_Age,
-                            Road_Condition_Score, Package_Weight, Fuel_Efficiency,
-                            Warehouse_Processing_Time]], columns=columns)
 
-# Make a prediction
-# Make a prediction
-if st.button("Predict Delivery Delay"):
-    prediction = predict_delivery_delay(input_data)
-    if prediction[0] == 0:
-        st.write("Predicted Delivery Delay: 0 (No significant delay expected)")
-    else:
-        st.write("Predicted Delivery Delay: 1 (Delay expected)")
+y = df['FraudFound_P']
+X = df.drop('FraudFound_P', axis=1)
+
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+# Create individual classifiers
+svm_clf = SVC(probability=True)
+knn_clf = KNeighborsClassifier()
+dt_clf = DecisionTreeClassifier()
+
+# Create an ensemble using VotingClassifier
+voting_clf = VotingClassifier(estimators=[('svm', svm_clf), ('knn', knn_clf), ('dt', dt_clf)], voting='soft')
+
+# Train the ensemble model
+voting_clf.fit(X_train, y_train)
+
+
+# Streamlit app
+st.title("Fraud Detection App")
+
+# Sidebar for user input
+st.sidebar.header("Enter Features:")
+
+# Create input fields for each feature
+input_features = {}
+for column in X.columns:
+  input_features[column] = st.sidebar.number_input(f"Enter {column}", value=0)
+
+
+# Predict button
+if st.sidebar.button("Predict"):
+  # Create a DataFrame with user input
+  user_input = pd.DataFrame([input_features])
+
+  # Make prediction using the trained model
+  prediction = voting_clf.predict(user_input)
+
+  # Display the prediction
+  st.write("## Prediction:")
+  if prediction[0] == 1:
+    st.error("Fraud Detected")
+  else:
+    st.success("No Fraud Detected")
